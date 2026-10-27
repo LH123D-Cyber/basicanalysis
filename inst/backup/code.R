@@ -1,11 +1,19 @@
-#整体正态检验
+# ============================================================
+# basicanalysis 完整单文件版（code.R）
+# 用途：备份 / 单文件 source 测试 / GitHub 存档
+# 注意：若包已使用 R/ 下的拆分文件，请勿把本文件放入 R/
+# ============================================================
+
+# ============================================================
+# 整体正态检验
+# ============================================================
 OND <- function(col,
                 QQ = FALSE,
                 His = FALSE,
                 ShapiroWilk = FALSE,
                 Convert = FALSE,
                 plot = FALSE,
-                data = df,               # ← 已支持，调用时显式指定即可
+                data = df,
                 outdir = NULL) {
 
   if (!all(col %in% colnames(data))) {
@@ -15,8 +23,8 @@ OND <- function(col,
 
   sub <- data[, col, drop = FALSE]
   result <- list()
-  result$col  <- col                 # ← 新增：保存列名以便 OND_show 重绘
-  result$data_source <- deparse(substitute(data))  # 记录数据来源（可选）
+  result$col  <- col
+  result$data_source <- deparse(substitute(data))
 
   get_mfrow <- function(n) {
     if (n <= 2) return(c(1, n))
@@ -182,7 +190,9 @@ OND <- function(col,
 }
 
 
-# ---- 显示辅助函数（可选传入 data 用于对新数据重绘）----
+# ============================================================
+# 显示辅助函数：显示或重绘 OND 生成的图形
+# ============================================================
 OND_show <- function(result, name, data = NULL) {
   obj <- result[[name]]
   if (is.null(obj)) {
@@ -190,7 +200,6 @@ OND_show <- function(result, name, data = NULL) {
     return(invisible(NULL))
   }
 
-  # ---- 有 data 参数：用新数据 + 原 col 重新绘制 ----
   if (!is.null(data)) {
     col <- result$col
     if (!all(col %in% colnames(data))) {
@@ -202,7 +211,6 @@ OND_show <- function(result, name, data = NULL) {
     par(mfrow = obj$mfrow)
 
     if (name %in% c("QQ1", "QQ2")) {
-      # QQ2 需要转换后数据；这里用新数据的原值重新画（仅作对比）
       for (v in col) {
         qqnorm(sub[[v]], main = paste("Q-Q:", v), pch = 19, col = "blue")
         qqline(sub[[v]], col = "red", lwd = 2)
@@ -216,7 +224,6 @@ OND_show <- function(result, name, data = NULL) {
     return(invisible(NULL))
   }
 
-  # ---- 无 data 参数：按原来录制的方式显示 ----
   if (isTRUE(obj$is_file)) {
     os <- .Platform$OS.type
     if (os == "windows") shell.exec(obj$file)
@@ -232,13 +239,15 @@ OND_show <- function(result, name, data = NULL) {
   invisible(NULL)
 }
 
-#方法判定
+
+# ============================================================
+# 统计方法判定
+# ============================================================
 DDT <- function(data,
                 Objective,
                 group,
-                alpha = 0.05) {     # ← 第四个参数：显著性水平
+                alpha = 0.05) {
 
-  # ---- 参数检查 ----
   if (length(Objective) != 1) stop("Objective 只能选择一个变量")
   if (length(group)     != 1) stop("group 只能指定一个分组列")
   if (!Objective %in% colnames(data))
@@ -252,7 +261,6 @@ DDT <- function(data,
   if (!is.numeric(x)) stop("Objective 必须是数值型变量")
   if (!is.factor(g))  g <- factor(g)
 
-  # 去缺失
   ok <- !is.na(x) & !is.na(g)
   x <- x[ok]; g <- droplevels(g[ok])
 
@@ -271,9 +279,6 @@ DDT <- function(data,
     n_each   = sapply(grp_data, length)
   )
 
-  # ============================================================
-  # 1. 各组正态性 (Shapiro-Wilk)
-  # ============================================================
   norm_test <- data.frame(
     group  = groups,
     n      = as.integer(sapply(grp_data, length)),
@@ -301,10 +306,6 @@ DDT <- function(data,
   result$Normality <- norm_test
   all_normal <- all(norm_test$normal == "Yes")
 
-  # ============================================================
-  # 2. 方差齐性
-  # ============================================================
-  # 2a. Levene（基于中位数，稳健）
   if (requireNamespace("car", quietly = TRUE)) {
     lev <- tryCatch(
       car::leveneTest(x ~ g, data = data.frame(x = x, g = g)),
@@ -317,7 +318,6 @@ DDT <- function(data,
       lev_W <- NA_real_; lev_p <- NA_real_
     }
   } else {
-    # 若未装 car 包，手写 Levene（基于中位数）
     med <- tapply(x, g, median, na.rm = TRUE)
     z   <- abs(x - med[as.character(g)])
     lev_fit <- aov(z ~ g)
@@ -326,7 +326,6 @@ DDT <- function(data,
     lev_p <- lev_tab$`Pr(>F)`[1]
   }
 
-  # 2b. Bartlett（对正态性敏感）
   brt <- tryCatch(
     bartlett.test(x ~ g, data = data.frame(x = x, g = g)),
     error = function(e) NULL
@@ -346,11 +345,7 @@ DDT <- function(data,
   )
   var_homogeneous <- !is.na(lev_p) && lev_p > alpha
 
-  # ============================================================
-  # 3. 决策建议
-  # ============================================================
   if (k == 2) {
-    # 两组：无需事后检验
     if (all_normal && var_homogeneous) {
       method  <- "独立样本 t 检验"
       posthoc <- "无（两组无需事后检验）"
@@ -365,7 +360,6 @@ DDT <- function(data,
       reason  <- "数据不满足正态分布（Wilcoxon 对分布和方差不敏感）"
     }
   } else {
-    # 三组及以上
     if (all_normal && var_homogeneous) {
       method  <- "One-way ANOVA（单因素方差分析）"
       posthoc <- "Tukey HSD"
@@ -373,7 +367,7 @@ DDT <- function(data,
     } else if (all_normal && !var_homogeneous) {
       method  <- "Welch ANOVA（Welch 单因素方差分析）"
       posthoc <- "Games-Howell"
-      reason  <- "各组数据满足正态分布，但方差不齐"
+      reason  <- "各组数据满足正态分布，但方差齐性"
     } else if (!all_normal && var_homogeneous) {
       method  <- "Kruskal-Wallis 秩和检验"
       posthoc <- "Dunn 检验（BH 校正）"
@@ -385,7 +379,6 @@ DDT <- function(data,
     }
   }
 
-  # 小样本提示
   if (min(norm_test$n) < 5) {
     reason <- paste0(reason, "；部分组样本量小于 5，正态性检验结果可能不稳定")
   }
@@ -405,9 +398,6 @@ DDT <- function(data,
     summary         = summary_text
   )
 
-  # ============================================================
-  # 4. 打印输出
-  # ============================================================
   cat("══════════ DDT 分析结果 ══════════\n")
   cat("变量:", Objective, " | 分组:", group,
       " | 组数:", k, " | alpha =", alpha, "\n\n")
@@ -431,15 +421,18 @@ DDT <- function(data,
 
   invisible(result)
 }
-#差异分析及事后检验
+
+
+# ============================================================
+# 差异分析及事后检验
+# ============================================================
 DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
                          Adjust = "BH", summary = TRUE, alpha = 0.05) {
 
-  # ---- 参数检查 ----
   if (length(Objective) != 1) stop("Objective 只能选择一个变量")
-  if (length(group)     != 1) stop("group 只能指定一个分组列")
+  if (length(group) != 1) stop("group 只能指定一个分组列")
   if (!Objective %in% colnames(data)) stop("变量不存在: ", Objective)
-  if (!group %in% colnames(data))     stop("分组列不存在: ", group)
+  if (!group %in% colnames(data)) stop("分组列不存在: ", group)
 
   x <- data[[Objective]]
   g <- as.factor(data[[group]])
@@ -453,9 +446,7 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
 
   diff_key <- tolower(trimws(Diff))
 
-  # ============================================================
-  # 1. 差异分析
-  # ============================================================
+  # 1. 总体差异分析
   if (diff_key %in% c("anova", "one-way anova", "oneway")) {
     fit <- aov(x ~ g); sm <- summary(fit)[[1]]
     overall <- list(method = "One-way ANOVA",
@@ -501,33 +492,27 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
          "\n可用: ANOVA / Welch ANOVA / Kruskal-Wallis / t / Welch t / Wilcoxon")
   }
 
-  # ============================================================
   # 2. 事后检验（k >= 3）
-  # ============================================================
   p_mat <- NULL
   posthoc_info <- NULL
 
   if (k >= 3) {
     ph_key <- if (is.null(Posthoc)) "" else tolower(trimws(Posthoc))
-    # 未指定时按 Diff 给默认值
     if (ph_key == "") {
       if (diff_key %in% c("anova", "one-way anova", "oneway")) ph_key <- "tukey hsd"
       else if (diff_key %in% c("welch anova", "welch", "welch's anova")) ph_key <- "games-howell"
       else ph_key <- "dunn"
     }
     ph_res <- run_posthoc(x, g, groups, diff_key, ph_key, Adjust)
-    p_mat        <- ph_res$p_mat
+    p_mat <- ph_res$p_mat
     posthoc_info <- ph_res$method
 
   } else {
-    # k == 2：直接用总体 p
     p_mat <- matrix(1, 2, 2, dimnames = list(groups, groups))
     p_mat[1, 2] <- p_mat[2, 1] <- overall$p
   }
 
-  # ============================================================
-  # 3. 描述性统计 + 字母
-  # ============================================================
+  # 3. 描述性统计与差异字母
   gd <- split(x, g)
   desc <- data.frame(
     group = groups,
@@ -539,9 +524,7 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
   )
   desc$letter <- assign_letters(desc$mean, p_mat, alpha, desc$group)
 
-  # ============================================================
   # 4. 输出
-  # ============================================================
   result <- list(
     summary_data = desc,
     overall      = overall,
@@ -570,9 +553,11 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
 
 
 # ============================================================
-# 事后检验执行
+# 执行事后检验（内部函数）
 # ============================================================
 run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
+  Adjust <- tolower(Adjust)
+
   k <- length(groups)
   p_mat <- matrix(1, k, k, dimnames = list(groups, groups))
   method_name <- ""
@@ -615,14 +600,16 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
 
   } else if (ph_key %in% c("dunn", "dunn's test", "dunn test")) {
     if (requireNamespace("dunn.test", quietly = TRUE)) {
-      dt <- dunn.test::dunn.test(x, g, method = Adjust, table = FALSE, kw = FALSE)
+      # list = TRUE 才会返回列表；调整后 p 值字段名为 P.adjusted
+      dt <- dunn.test::dunn.test(x, g, method = Adjust,
+                                 table = FALSE, kw = FALSE, list = TRUE)
       method_name <- paste0("Dunn 检验 (", Adjust, ")")
       for (i in seq_along(dt$comparisons)) {
         parts <- strsplit(dt$comparisons[i], " - ")[[1]]
         if (length(parts) == 2) {
           g1 <- trimws(parts[1]); g2 <- trimws(parts[2])
           if (g1 %in% groups && g2 %in% groups)
-            p_mat[g1, g2] <- p_mat[g2, g1] <- dt$altp[i]
+            p_mat[g1, g2] <- p_mat[g2, g1] <- dt$P.adjusted[i]
         }
       }
     } else if (requireNamespace("FSA", quietly = TRUE)) {
@@ -644,7 +631,6 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
     }
 
   } else {
-    # 其它名称（LSD/Bonferroni/...）→ 通用成对检验
     if (diff_key %in% c("kruskal-wallis", "kruskal", "kw")) {
       ph <- pairwise.wilcox.test(x, g, p.adjust.method = Adjust, exact = FALSE)
       method_name <- paste0("成对 Wilcoxon (", Adjust, ")")
@@ -658,7 +644,10 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
   list(p_mat = p_mat, method = method_name)
 }
 
-# 从 pairwise.t.test / pairwise.wilcox.test 结果填充对称 p 矩阵
+
+# ============================================================
+# 从 pairwise 检验结果填充对称 p 值矩阵（内部函数）
+# ============================================================
 fill_pmat_from_pairwise <- function(ph, groups, p_mat) {
   pv <- ph$p.value
   if (is.null(dim(pv))) return(invisible(NULL))
@@ -672,8 +661,9 @@ fill_pmat_from_pairwise <- function(ph, groups, p_mat) {
   invisible(NULL)
 }
 
+
 # ============================================================
-# 字母标注（CLD）：基于 p 值矩阵的贪心插入算法
+# 差异字母（CLD）：基于 p 值矩阵的贪心插入算法
 # ============================================================
 assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
   n <- length(means)
@@ -698,7 +688,6 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
     if (!found) { cld[i] <- letter_pool[curr]; curr <- curr + 1L }
   }
 
-  # 修复"应共享但未共享"的对
   changed <- TRUE; iter <- 0
   while (changed && iter < 100) {
     changed <- FALSE; iter <- iter + 1
@@ -721,96 +710,7 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
   names(out) <- labels
   out
 }
-# ============================================================
-# 辅助函数 1：把原始观测整理成 group + .value 的数据框
-# ============================================================
-.prepare_scatter <- function(Original, pointgroup, raw_data,
-                             mean, target_levels) {
-  if (!is.null(Original)) {
-    if (is.list(Original)) {
-      if (is.null(names(Original)) || any(names(Original) == ""))
-        stop("Original 为 list 时，每个元素必须有名字（组名 = 数值向量）")
-      df <- do.call(rbind, lapply(names(Original), function(g) {
-        data.frame(group = g, .value = Original[[g]], stringsAsFactors = FALSE)
-      }))
-    } else if (is.numeric(Original)) {
-      if (is.null(pointgroup))
-        stop("Original 为数值向量时必须提供 pointgroup，例如 pointgroup = dt$group\n",
-             "也可以改用 list 形式：Original = split(dt$DO, dt$group)")
-      if (length(pointgroup) != length(Original))
-        stop("Original 与 pointgroup 长度不一致")
-      df <- data.frame(group = as.character(pointgroup),
-                       .value = Original, stringsAsFactors = FALSE)
-    } else {
-      stop("Original 需为命名 list 或数值向量")
-    }
-  } else if (!is.null(raw_data)) {
-    # 旧用法兼容
-    if (!is.data.frame(raw_data)) stop("raw_data 必须是数据框")
-    if (!"group" %in% colnames(raw_data)) stop("raw_data 缺少 group 列")
-    if (!mean %in% colnames(raw_data))
-      stop("raw_data 缺少 '", mean, "' 列（若原始列名不是 mean，请先执行 raw_data$mean <- raw_data$原变量名）")
-    df <- data.frame(group = as.character(raw_data$group),
-                     .value = raw_data[[mean]], stringsAsFactors = FALSE)
-  } else {
-    return(NULL)
-  }
-  df$group <- factor(df$group, levels = target_levels)
-  df <- df[!is.na(df$group), , drop = FALSE]
-  df
-}
 
-# ============================================================
-# 辅助函数 2：给 ggplot 添加散点图层（处理颜色逻辑）
-# ============================================================
-.add_scatter <- function(p, scatter_df, pointcolor, color, group_levels) {
-  if (is.null(scatter_df)) return(p)
-
-  use_group_color <- FALSE
-  color_values    <- NULL
-
-  if (!is.null(pointcolor)) {
-    if (length(pointcolor) > 1) {
-      # 命名向量：按 levels 重排；无名向量：按组顺序
-      if (!is.null(names(pointcolor))) {
-        missing_g <- setdiff(group_levels, names(pointcolor))
-        if (length(missing_g) > 0)
-          stop("pointcolor 缺少以下分组的颜色: ",
-               paste(missing_g, collapse = ", "))
-        color_values <- pointcolor[group_levels]
-      } else {
-        if (length(pointcolor) != length(group_levels))
-          stop("pointcolor 为无名向量时，长度必须等于分组数 (",
-               length(group_levels), ")")
-        color_values <- setNames(pointcolor, group_levels)
-      }
-      use_group_color <- TRUE
-    } else {
-      # 单色
-      color_values <- pointcolor
-    }
-  } else if (length(color) > 1) {
-    # 未指定 pointcolor 但柱子 color 是多色 → 散点沿用同色
-    if (!is.null(names(color))) color_values <- color[group_levels]
-    else color_values <- setNames(color, group_levels)
-    use_group_color <- TRUE
-  } else {
-    color_values <- color
-  }
-
-  if (use_group_color) {
-    p + geom_jitter(data = scatter_df,
-                    aes(x = group, y = .value, color = group),
-                    width = 0.15, size = 1.5, alpha = 0.5,
-                    inherit.aes = FALSE) +
-      scale_color_manual(values = color_values, guide = "none")
-  } else {
-    p + geom_jitter(data = scatter_df,
-                    aes(x = group, y = .value),
-                    width = 0.15, size = 1.5, alpha = 0.5,
-                    color = color_values, inherit.aes = FALSE)
-  }
-}
 
 # ============================================================
 # 辅助 1：整理散点数据（支持独立的颜色分组）
@@ -860,7 +760,6 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
     return(NULL)
   }
 
-  # 位置分组一致性诊断
   src_levels <- unique(df$group)
   common     <- intersect(src_levels, target_levels)
   if (length(common) == 0) {
@@ -879,6 +778,7 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
   df
 }
 
+
 # ============================================================
 # 辅助 2：添加散点图层（优先按 .point_color 上色）
 # ============================================================
@@ -888,7 +788,7 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
 
   has_point_color <- ".point_color" %in% colnames(scatter_df)
 
-  # ---- 场景 A：散点颜色按 pointcolor_by 分组 ----
+  # 场景 A：散点颜色按 pointcolor_by 分组
   if (has_point_color) {
     pc_levels <- unique(scatter_df$.point_color)
 
@@ -934,7 +834,7 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
     return(p)
   }
 
-  # ---- 场景 B：无 pointcolor_by，沿用旧逻辑 ----
+  # 场景 B：无 pointcolor_by，沿用旧逻辑
   use_group_color <- FALSE
   color_values    <- NULL
 
@@ -977,6 +877,7 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
   }
 }
 
+
 # ============================================================
 # Barplot：普通差异柱状图
 # ============================================================
@@ -993,7 +894,6 @@ Barplot <- function(data, mean = "mean", Whiskers = "se",
     stop("请先安装 ggplot2: install.packages('ggplot2')")
   library(ggplot2)
 
-  # ---- 检查 ----
   if (!is.data.frame(data)) stop("data 必须是数据框")
   if (!mean %in% colnames(data)) stop("mean 列不存在: ", mean)
   if (!"group" %in% colnames(data)) stop("数据中必须有 'group' 列")
@@ -1005,7 +905,6 @@ Barplot <- function(data, mean = "mean", Whiskers = "se",
   if (!bargroup %in% colnames(data))
     stop("data 中不存在柱状图颜色分组列: ", bargroup)
 
-  # ---- 排分组顺序 ----
   if (!is.null(x)) {
     data <- data[data$group %in% x, , drop = FALSE]
     data$group <- factor(data$group, levels = x)
@@ -1014,13 +913,11 @@ Barplot <- function(data, mean = "mean", Whiskers = "se",
   }
   data <- data[order(data$group), , drop = FALSE]
   group_levels <- levels(data$group)
-  n_grp        <- length(group_levels)
 
   data$ymin <- data[[mean]] - data[[Whiskers]]
   data$ymax <- data[[mean]] + data[[Whiskers]]
   if (is.null(loca)) loca <- diff(range(c(data$ymin, data$ymax))) * 0.05
 
-  # ---- bargroup 一致性提示 ----
   if (bargroup != "group") {
     chk <- tapply(as.character(data[[bargroup]]), as.character(data$group),
                   function(v) length(unique(v)))
@@ -1029,11 +926,9 @@ Barplot <- function(data, mean = "mean", Whiskers = "se",
               "' 列中有多个取值，柱子填充色可能不一致")
   }
 
-  # ---- 散点数据 ----
   scatter_df <- if (point) .prepare_scatter(Original, pointgroup, pointcolor_by,
                                             raw_data, mean, group_levels) else NULL
 
-  # ---- 柱子颜色 ----
   multi_color <- length(color) > 1
   if (multi_color) {
     bar_levels <- if (bargroup == "group") group_levels
@@ -1053,7 +948,6 @@ Barplot <- function(data, mean = "mean", Whiskers = "se",
     }
   }
 
-  # ---- 主图 ----
   if (multi_color) {
     p <- ggplot(data, aes(x = group, y = .data[[mean]],
                           fill = .data[[bargroup]])) +
@@ -1088,6 +982,7 @@ Barplot <- function(data, mean = "mean", Whiskers = "se",
   return(p)
 }
 
+
 # ============================================================
 # CircleBar：支持 circle=TRUE 的极坐标版本
 # ============================================================
@@ -1105,7 +1000,6 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
     stop("请先安装 ggplot2: install.packages('ggplot2')")
   library(ggplot2)
 
-  # ---- 检查 ----
   if (!is.data.frame(data)) stop("data 必须是数据框")
   if (!mean %in% colnames(data)) stop("mean 列不存在: ", mean)
   if (!"group" %in% colnames(data)) stop("数据中必须有 'group' 列")
@@ -1118,7 +1012,6 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
   if (!bargroup %in% colnames(data))
     stop("data 中不存在柱状图颜色分组列: ", bargroup)
 
-  # ---- 排分组顺序 ----
   if (!is.null(x)) {
     data <- data[data$group %in% x, , drop = FALSE]
     data$group <- factor(data$group, levels = x)
@@ -1127,7 +1020,6 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
   }
   data <- data[order(data$group), , drop = FALSE]
   group_levels <- levels(data$group)
-  n_grp        <- length(group_levels)
 
   data$ymin <- data[[mean]] - data[[Whiskers]]
   data$ymax <- data[[mean]] + data[[Whiskers]]
@@ -1141,11 +1033,9 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
               "' 列中有多个取值，柱子填充色可能不一致")
   }
 
-  # ---- 散点数据 ----
   scatter_df <- if (point) .prepare_scatter(Original, pointgroup, pointcolor_by,
                                             raw_data, mean, group_levels) else NULL
 
-  # ---- 柱子颜色 ----
   multi_color <- length(color) > 1
   if (multi_color) {
     bar_levels <- if (bargroup == "group") group_levels
@@ -1164,9 +1054,7 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
     }
   }
 
-  # ============================================================
-  # 普通柱状图
-  # ============================================================
+  # 普通柱状图（circle = FALSE）
   if (!circle) {
     if (multi_color) {
       p <- ggplot(data, aes(x = group, y = .data[[mean]],
@@ -1199,9 +1087,7 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
     return(p)
   }
 
-  # ============================================================
-  # 圆形柱状图
-  # ============================================================
+  # 圆形柱状图（circle = TRUE）
   y_top_max <- max(data$ymax + loca, na.rm = TRUE)
   y_range   <- diff(range(c(data$ymin, data$ymax)))
   y_upper   <- y_top_max + y_range * 0.15
@@ -1246,12 +1132,16 @@ CircleBar <- function(data, mean = "mean", Whiskers = "se",
 
   return(p)
 }
-#不做差异分析时的绘图
+
+
+# ============================================================
+# plotclass：不做差异分析时的 0/1 分类热图
+# ============================================================
 plotclass <- function(data, col, x, y,
-                      color1 = "#cfe2f3",   # 0 的颜色
-                      color2 = "#e06666",   # 1 的颜色
-                      gap    = 1,           # 单元格间隙（白边粗细）
-                      na_color = "grey90",  # 缺失值颜色
+                      color1 = "#cfe2f3",
+                      color2 = "#e06666",
+                      gap    = 1,
+                      na_color = "grey90",
                       xlab = NULL, ylab = NULL,
                       legend_name = NULL) {
 
@@ -1259,7 +1149,6 @@ plotclass <- function(data, col, x, y,
     stop("请先安装 ggplot2: install.packages('ggplot2')")
   library(ggplot2)
 
-  # ---- 参数检查 ----
   if (!is.data.frame(data)) stop("data 必须是数据框")
   for (nm in c(col, x, y)) {
     if (!nm %in% colnames(data)) stop("数据中不存在列: ", nm)
@@ -1272,14 +1161,12 @@ plotclass <- function(data, col, x, y,
     stringsAsFactors = FALSE
   )
 
-  # 只保留 0/1（以及 NA），其它值给出提示
   bad <- setdiff(unique(df$.val[!is.na(df$.val)]), c(0, 1))
   if (length(bad) > 0)
     warning("列 '", col, "' 含有非 0/1 的值: ",
             paste(bad, collapse = ", "), "（将按 NA 处理）")
   df$.val[!is.na(df$.val) & !(df$.val %in% c(0, 1))] <- NA
 
-  # 因子：把值转成字符串标签，方便图例显示
   df$.val_chr <- ifelse(is.na(df$.val), NA,
                         ifelse(df$.val == 1, "1", "0"))
   df$.val_chr <- factor(df$.val_chr, levels = c("0", "1"))
@@ -1288,7 +1175,6 @@ plotclass <- function(data, col, x, y,
   if (is.null(ylab)) ylab <- y
   if (is.null(legend_name)) legend_name <- col
 
-  # ---- 绘图 ----
   p <- ggplot(df, aes(x = .x, y = .y, fill = .val_chr)) +
     geom_tile(color = "white", linewidth = gap) +
     scale_fill_manual(
@@ -1308,12 +1194,15 @@ plotclass <- function(data, col, x, y,
       legend.position  = "right",
       plot.background  = element_rect(fill = "white", color = NA)
     ) +
-    coord_fixed()   # 保证单元格是正方形
+    coord_fixed()
 
   p
 }
 
 
+# ============================================================
+# plotRadialTree：三层径向树图
+# ============================================================
 plotRadialTree <- function(data, Objective, group, subgroup,
                            color = NULL,
                            edgealpha = 1,
@@ -1328,14 +1217,12 @@ plotRadialTree <- function(data, Objective, group, subgroup,
                            size_scale = "sqrt",
                            return = "plot") {
 
-  # ---- 依赖 ----
   for (pkg in c("tidygraph", "ggraph", "ggplot2")) {
     if (!requireNamespace(pkg, quietly = TRUE))
       stop("请先安装 ", pkg, ": install.packages('", pkg, "')")
   }
   library(ggplot2)
 
-  # ---- 参数检查 ----
   if (!is.data.frame(data)) stop("data 必须是数据框")
   for (nm in list(Objective, group, subgroup)) {
     if (length(nm) != 1 || !is.character(nm))
@@ -1348,7 +1235,6 @@ plotRadialTree <- function(data, Objective, group, subgroup,
 
   if (is.null(root_name)) root_name <- Objective
 
-  # ---- 准备数据 ----
   d <- data.frame(
     g1  = as.character(data[[group]]),
     g2  = as.character(data[[subgroup]]),
@@ -1362,14 +1248,12 @@ plotRadialTree <- function(data, Objective, group, subgroup,
   g1_levels <- unique(d$g1)
   g1_sum    <- tapply(d$val, d$g1, agg_fun, na.rm = TRUE)
 
-  # 第三层汇总
   sub_agg <- aggregate(d$val, by = list(g1 = d$g1, g2 = d$g2),
                        FUN = agg_fun, na.rm = TRUE)
   names(sub_agg)[3] <- "value"
   sub_agg$g1 <- factor(sub_agg$g1, levels = g1_levels)
   sub_agg <- sub_agg[order(sub_agg$g1, sub_agg$g2), , drop = FALSE]
 
-  # ---- 节点表 ----
   nodes_root <- data.frame(
     node_name   = "ROOT",
     node_label  = root_name,
@@ -1392,10 +1276,10 @@ plotRadialTree <- function(data, Objective, group, subgroup,
 
   nodes_g2 <- data.frame(
     node_name   = paste0("G2_", sub_agg$g1, "_", sub_agg$g2),
-    node_label  = sub_agg$g2,                              # 只显示年份
+    node_label  = sub_agg$g2,
     node_branch = as.character(sub_agg$g1),
     abu         = sub_agg$value,
-    group       = as.character(sub_agg$g1),                # 继承城市颜色
+    group       = as.character(sub_agg$g1),
     node_level  = "subgroup",
     stringsAsFactors = FALSE
   )
@@ -1403,7 +1287,6 @@ plotRadialTree <- function(data, Objective, group, subgroup,
   nodes <- rbind(nodes_root, nodes_g1, nodes_g2)
   rownames(nodes) <- NULL
 
-  # ---- 边表 ----
   edges_root <- data.frame(
     from = "ROOT",
     to   = nodes_g1$node_name,
@@ -1416,7 +1299,6 @@ plotRadialTree <- function(data, Objective, group, subgroup,
   )
   edges <- rbind(edges_root, edges_g1)
 
-  # ---- 颜色 ----
   n_g1 <- length(g1_levels)
   if (is.null(color)) {
     color <- scales::hue_pal()(n_g1)
@@ -1436,7 +1318,6 @@ plotRadialTree <- function(data, Objective, group, subgroup,
   }
   color_map <- c(color, "ROOT" = root_color)
 
-  # ---- 大小缩放（避免 500 与 10 相差过大） ----
   nodes$.size_val <- switch(size_scale,
                             sqrt = sqrt(nodes$abu),
                             log  = log1p(nodes$abu),
@@ -1445,7 +1326,6 @@ plotRadialTree <- function(data, Objective, group, subgroup,
 
   graph <- tidygraph::tbl_graph(nodes = nodes, edges = edges, directed = TRUE)
 
-  # ---- 绘图 ----
   p <- ggraph::ggraph(graph, layout = 'dendrogram', circular = TRUE) +
     ggraph::geom_edge_diagonal(aes(color = node1.group),
                                alpha = edgealpha,
@@ -1478,7 +1358,6 @@ plotRadialTree <- function(data, Objective, group, subgroup,
     theme(legend.position = "none",
           plot.background = element_rect(fill = "white", color = "white"))
 
-  # ---- 返回 ----
   if (identical(return, "plot")) return(p)
   if (identical(return, "data")) return(list(nodes = nodes, edges = edges, graph = graph))
   if (identical(return, "both")) return(list(plot = p, nodes = nodes, edges = edges, graph = graph))

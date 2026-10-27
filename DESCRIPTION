@@ -77,3 +77,4 @@ Suggests:
     testthat (>= 3.0.0)
 URL: https://github.com/LH123D-Cyber/basicanalysis
 BugReports: https://github.com/LH123D-Cyber/basicanalysis/issues
+Config/testthat/edition: 3

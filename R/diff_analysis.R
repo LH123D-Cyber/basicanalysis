@@ -39,19 +39,19 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
   # 1. 总体差异分析
   # ============================================================
   if (diff_key %in% c("anova", "one-way anova", "oneway")) {
-    fit <- aov(x ~ g); sm <- summary(fit)[[1]]
+    fit <- stats::aov(x ~ g); sm <- summary(fit)[[1]]
     overall <- list(method = "One-way ANOVA",
                     stat = sm$`F value`[1], p = sm$`Pr(>F)`[1],
                     df1 = sm$Df[1], df2 = sm$Df[2])
 
   } else if (diff_key %in% c("welch anova", "welch", "welch's anova")) {
-    wt <- oneway.test(x ~ g, var.equal = FALSE)
+    wt <- stats::oneway.test(x ~ g, var.equal = FALSE)
     overall <- list(method = "Welch ANOVA",
                     stat = unname(wt$statistic), p = wt$p.value,
                     df1 = unname(wt$parameter[1]), df2 = unname(wt$parameter[2]))
 
   } else if (diff_key %in% c("kruskal-wallis", "kruskal", "kw", "kruskal wallis")) {
-    kt <- kruskal.test(x ~ g)
+    kt <- stats::kruskal.test(x ~ g)
     overall <- list(method = "Kruskal-Wallis",
                     stat = unname(kt$statistic), p = kt$p.value,
                     df = unname(kt$parameter))
@@ -59,14 +59,14 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
   } else if (diff_key %in% c("t", "t.test", "t-test", "student's t")) {
     if (k != 2) stop("t 检验需要恰好 2 个分组")
     gd <- split(x, g)
-    tt <- t.test(gd[[1]], gd[[2]], var.equal = TRUE)
+    tt <- stats::t.test(gd[[1]], gd[[2]], var.equal = TRUE)
     overall <- list(method = "独立样本 t 检验",
                     stat = unname(tt$statistic), p = tt$p.value)
 
   } else if (diff_key %in% c("welch t", "welch t-test", "welch t.test")) {
     if (k != 2) stop("Welch t 检验需要恰好 2 个分组")
     gd <- split(x, g)
-    tt <- t.test(gd[[1]], gd[[2]], var.equal = FALSE)
+    tt <- stats::t.test(gd[[1]], gd[[2]], var.equal = FALSE)
     overall <- list(method = "Welch t 检验",
                     stat = unname(tt$statistic), p = tt$p.value)
 
@@ -74,7 +74,7 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
                              "mann whitney", "mann-whitney u")) {
     if (k != 2) stop("Wilcoxon 检验需要恰好 2 个分组")
     gd <- split(x, g)
-    wt <- wilcox.test(gd[[1]], gd[[2]])
+    wt <- stats::wilcox.test(gd[[1]], gd[[2]])
     overall <- list(method = "Wilcoxon 秩和检验",
                     stat = unname(wt$statistic), p = wt$p.value)
 
@@ -113,8 +113,8 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
     group = groups,
     n     = as.integer(sapply(gd, length)),
     mean  = sapply(gd, mean),
-    sd    = sapply(gd, sd),
-    se    = sapply(gd, sd) / sqrt(sapply(gd, length)),
+    sd    = sapply(gd, stats::sd),
+    se    = sapply(gd, stats::sd) / sqrt(sapply(gd, length)),
     stringsAsFactors = FALSE
   )
   desc$letter <- assign_letters(desc$mean, p_mat, alpha, desc$group)
@@ -150,16 +150,21 @@ DiffAnalysis <- function(data, Objective, group, Diff, Posthoc = NULL,
 
 
 # ============================================================
-# 执行事后检验
+# 执行事后检验（内部函数）
 # ============================================================
+#' @keywords internal
+#' @noRd
 run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
+  # dunn.test 的 method 参数只接受小写；统一归一化
+  Adjust <- tolower(Adjust)
+
   k <- length(groups)
   p_mat <- matrix(1, k, k, dimnames = list(groups, groups))
   method_name <- ""
 
   if (ph_key %in% c("tukey hsd", "tukey", "tukeyhsd", "tukey's hsd")) {
     if (diff_key %in% c("anova", "one-way anova", "oneway")) {
-      th <- TukeyHSD(aov(x ~ g))[[1]]
+      th <- stats::TukeyHSD(stats::aov(x ~ g))[[1]]
       method_name <- "Tukey HSD"
       for (i in seq_len(nrow(th))) {
         pn <- rownames(th)[i]
@@ -172,7 +177,7 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
       }
     } else {
       warning("Tukey HSD 仅适用于 ANOVA，已回退到成对 t 检验")
-      ph <- pairwise.t.test(x, g, p.adjust.method = Adjust)
+      ph <- stats::pairwise.t.test(x, g, p.adjust.method = Adjust)
       method_name <- paste0("成对 t 检验 (", Adjust, ")")
       fill_pmat_from_pairwise(ph, groups, p_mat)
     }
@@ -188,21 +193,23 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
       }
     } else {
       warning("未安装 rstatix，已回退到成对 Welch t 检验")
-      ph <- pairwise.t.test(x, g, pool.sd = FALSE, p.adjust.method = Adjust)
+      ph <- stats::pairwise.t.test(x, g, pool.sd = FALSE, p.adjust.method = Adjust)
       method_name <- paste0("成对 Welch t (", Adjust, ")")
       fill_pmat_from_pairwise(ph, groups, p_mat)
     }
 
   } else if (ph_key %in% c("dunn", "dunn's test", "dunn test")) {
     if (requireNamespace("dunn.test", quietly = TRUE)) {
-      dt <- dunn.test::dunn.test(x, g, method = Adjust, table = FALSE, kw = FALSE)
+      # list = TRUE 才会返回列表；调整后 p 值字段名为 P.adjusted
+      dt <- dunn.test::dunn.test(x, g, method = Adjust,
+                                 table = FALSE, kw = FALSE, list = TRUE)
       method_name <- paste0("Dunn 检验 (", Adjust, ")")
       for (i in seq_along(dt$comparisons)) {
         parts <- strsplit(dt$comparisons[i], " - ")[[1]]
         if (length(parts) == 2) {
           g1 <- trimws(parts[1]); g2 <- trimws(parts[2])
           if (g1 %in% groups && g2 %in% groups)
-            p_mat[g1, g2] <- p_mat[g2, g1] <- dt$altp[i]
+            p_mat[g1, g2] <- p_mat[g2, g1] <- dt$P.adjusted[i]
         }
       }
     } else if (requireNamespace("FSA", quietly = TRUE)) {
@@ -218,7 +225,7 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
       }
     } else {
       warning("未安装 dunn.test/FSA，已回退到成对 Wilcoxon 检验")
-      ph <- pairwise.wilcox.test(x, g, p.adjust.method = Adjust, exact = FALSE)
+      ph <- stats::pairwise.wilcox.test(x, g, p.adjust.method = Adjust, exact = FALSE)
       method_name <- paste0("成对 Wilcoxon (", Adjust, ")")
       fill_pmat_from_pairwise(ph, groups, p_mat)
     }
@@ -226,10 +233,10 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
   } else {
     # 其他名称（LSD/Bonferroni 等）→ 通用成对检验
     if (diff_key %in% c("kruskal-wallis", "kruskal", "kw")) {
-      ph <- pairwise.wilcox.test(x, g, p.adjust.method = Adjust, exact = FALSE)
+      ph <- stats::pairwise.wilcox.test(x, g, p.adjust.method = Adjust, exact = FALSE)
       method_name <- paste0("成对 Wilcoxon (", Adjust, ")")
     } else {
-      ph <- pairwise.t.test(x, g, p.adjust.method = Adjust)
+      ph <- stats::pairwise.t.test(x, g, p.adjust.method = Adjust)
       method_name <- paste0("成对 t 检验 (", Adjust, ")")
     }
     fill_pmat_from_pairwise(ph, groups, p_mat)
@@ -238,7 +245,12 @@ run_posthoc <- function(x, g, groups, diff_key, ph_key, Adjust) {
   list(p_mat = p_mat, method = method_name)
 }
 
-# 从 pairwise.t.test / pairwise.wilcox.test 的结果填充对称 p 值矩阵
+
+# ============================================================
+# 从 pairwise 检验结果填充对称 p 值矩阵（内部函数）
+# ============================================================
+#' @keywords internal
+#' @noRd
 fill_pmat_from_pairwise <- function(ph, groups, p_mat) {
   pv <- ph$p.value
   if (is.null(dim(pv))) return(invisible(NULL))
@@ -252,9 +264,22 @@ fill_pmat_from_pairwise <- function(ph, groups, p_mat) {
   invisible(NULL)
 }
 
+
 # ============================================================
 # 差异字母（CLD）：基于 p 值矩阵的贪心插入算法
 # ============================================================
+#' 生成 Compact Letter Display（字母标记）
+#'
+#' 基于两两 p 值矩阵，为每个组分配字母。共享同一字母的组之间差异不显著；
+#' 不共享任何字母的组之间差异显著。组按均值降序排列。
+#'
+#' @param means 数值向量，各组均值。
+#' @param p_mat k x k 对称 p 值矩阵，行列为组名。
+#' @param alpha 显著性水平，默认 0.05。
+#' @param labels 可选组名标签；默认从 `p_mat` 行名取。
+#'
+#' @return 命名字符向量。
+#' @export
 assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
   n <- length(means)
   if (n == 1) return("a")
@@ -278,7 +303,7 @@ assign_letters <- function(means, p_mat, alpha = 0.05, labels = NULL) {
     if (!found) { cld[i] <- letter_pool[curr]; curr <- curr + 1L }
   }
 
-  # 修复“应共享字母但未共享”的情况
+  # 修复"应共享字母但未共享"的情况
   changed <- TRUE; iter <- 0
   while (changed && iter < 100) {
     changed <- FALSE; iter <- iter + 1
